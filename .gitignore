@@ -1,3 +1,5 @@
 node_modules/
 .env
 configs/
+dev.prefix.json
+dev.features.json

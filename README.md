@@ -141,3 +141,18 @@ Bot role is too low in the role list
 
 Once configured, the bot will follow your server's role structure
 automatically.
+
+------------------------------------------------------------------------
+
+## 10. Dev Prefix File (Local Only)
+
+For development, you can change the message-command prefix with:
+
+/prefix value:<newPrefix>
+
+Details:
+- Only Discord server administrators can run `/prefix`
+- `/prefix` is only registered when local `dev.features.json` has `"enablePrefixCommand": true`
+- Prefix is stored in `dev.prefix.json` (gitignored)
+- If `dev.prefix.json` does not exist, the bot defaults to `!`
+- Use `dev.features.sample.json` and `dev.prefix.sample.json` as file format references

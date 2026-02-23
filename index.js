@@ -11,9 +11,10 @@ const {
 } = require('discord.js');
 
 const { getConfig, saveConfig } = require('./configManager');
+const { getPrefix, setPrefix } = require('./devPrefixManager');
+const { isPrefixCommandEnabled } = require('./devFeatureFlags');
 
 const TOKEN = process.env.TOKEN;
-const PREFIX = '!';
 const RESPONSE_TIME = 4000;
 
 const HELP_LINK = 'https://diagnostic-nickel-769.notion.site/CargoManager-310d9b7232008028aafbeaacbf4c652f?source=copy_link';
@@ -129,14 +130,15 @@ function getMemberTierAccess(member, config) {
 
 client.on('messageCreate', async (message) => {
     if (message.author.bot || !message.guild) return;
-    if (!message.content.startsWith(PREFIX)) return;
+    const prefix = getPrefix();
+    if (!message.content.startsWith(prefix)) return;
 
     const guildId = message.guild.id;
     const config = getConfig(guildId);
     const configChanged = ensureConfig(config);
     if (configChanged) saveConfig(guildId, config);
 
-    const args = message.content.slice(PREFIX.length).trim().split(/ +/);
+    const args = message.content.slice(prefix.length).trim().split(/ +/);
     const command = normalizeCommand(args.shift().toLowerCase(), args);
 
     message.delete().catch(() => {});
@@ -160,10 +162,10 @@ client.on('messageCreate', async (message) => {
         const setupLog = new EmbedBuilder()
             .setColor(0x5865F2)
             .setTitle('Setup Command')
-            .addFields(
+                .addFields(
                 { name: 'User', value: `${message.member}`, inline: true },
                 { name: 'Channel', value: `${message.channel}`, inline: true },
-                { name: 'Command', value: `!setup ${sub || ''}` }
+                { name: 'Command', value: `${prefix}setup ${sub || ''}` }
             )
             .setTimestamp();
 
@@ -351,7 +353,7 @@ client.on('messageCreate', async (message) => {
         if (!role || !targetMember) {
             return sendTempMessage(
                 message.channel,
-                `Usage: !${command} @Role @User`
+                `Usage: ${prefix}${command} @Role @User`
             );
         }
 
@@ -422,6 +424,57 @@ client.on('messageCreate', async (message) => {
 });
 
 client.on('interactionCreate', async (interaction) => {
+    if (interaction.isChatInputCommand()) {
+        if (interaction.commandName === 'help') {
+            await interaction.reply({
+                content: HELP_LINK,
+                ephemeral: true
+            });
+            return;
+        }
+
+        if (interaction.commandName === 'prefix') {
+            if (!isPrefixCommandEnabled()) {
+                await interaction.reply({
+                    content: 'This command is disabled in this environment.',
+                    ephemeral: true
+                });
+                return;
+            }
+
+            if (!interaction.inGuild()) {
+                await interaction.reply({
+                    content: 'This command can only be used in a server.',
+                    ephemeral: true
+                });
+                return;
+            }
+
+            if (!interaction.memberPermissions?.has(PermissionsBitField.Flags.Administrator)) {
+                await interaction.reply({
+                    content: 'Only administrators can change the prefix.',
+                    ephemeral: true
+                });
+                return;
+            }
+
+            const requestedPrefix = interaction.options.getString('value', true);
+            try {
+                const updatedPrefix = setPrefix(requestedPrefix);
+                await interaction.reply({
+                    content: `Dev prefix updated to \`${updatedPrefix}\`.`,
+                    ephemeral: true
+                });
+            } catch (error) {
+                await interaction.reply({
+                    content: `Failed to update prefix: ${error.message}`,
+                    ephemeral: true
+                });
+            }
+            return;
+        }
+    }
+
     if (!interaction.isButton()) return;
     if (!interaction.customId.startsWith('delete_setup_')) return;
 

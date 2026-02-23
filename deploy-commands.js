@@ -1,6 +1,7 @@
 require('dotenv').config();
 
 const { REST, Routes, SlashCommandBuilder } = require('discord.js');
+const { isPrefixCommandEnabled } = require('./devFeatureFlags');
 
 // Load from .env
 const TOKEN = process.env.TOKEN;
@@ -20,6 +21,23 @@ const commands = [
         .setDescription('Get setup instructions for Cargo Manager')
         .toJSON()
 ];
+
+if (isPrefixCommandEnabled()) {
+    commands.push(
+        new SlashCommandBuilder()
+            .setName('prefix')
+            .setDescription('Set local dev message prefix (stored in dev.prefix.json)')
+            .addStringOption((option) =>
+                option
+                    .setName('value')
+                    .setDescription('Prefix to use, 1-5 non-whitespace characters')
+                    .setRequired(true)
+                    .setMinLength(1)
+                    .setMaxLength(5)
+            )
+            .toJSON()
+    );
+}
 
 const rest = new REST({ version: '10' }).setToken(TOKEN);
 
