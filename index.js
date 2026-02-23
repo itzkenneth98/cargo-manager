@@ -2,9 +2,17 @@ require('dotenv').config();
 const { Client, GatewayIntentBits, PermissionsBitField } = require('discord.js');
 const { getConfig, saveConfig } = require('./configManager');
 
+const HELP_LINK = 'https://diagnostic-nickel-769.notion.site/CargoManager-310d9b7232008028aafbeaacbf4c652f?source=copy_link';
+
 const TOKEN = process.env.TOKEN;
 const PREFIX = '!';
 const RESPONSE_TIME = 4000;
+
+// Safety check
+if (!TOKEN) {
+    console.error('TOKEN is missing from .env');
+    process.exit(1);
+}
 
 const client = new Client({
     intents: [
@@ -17,6 +25,7 @@ const client = new Client({
 
 client.once('ready', () => {
     console.log(`Logged in as ${client.user.tag}`);
+    console.log('Bot is ready.');
 });
 
 async function sendTempMessage(channel, content) {
@@ -60,10 +69,22 @@ AdminAllowed: ${config.adminAllowedRoles.length}`
             return sendTempMessage(message.channel, 'Mention a role.');
         }
 
-        if (sub === 'modrole') config.modRoles.push(role.id);
-        if (sub === 'adminrole') config.adminRoles.push(role.id);
-        if (sub === 'allowmod') config.modAllowedRoles.push(role.id);
-        if (sub === 'allowadmin') config.adminAllowedRoles.push(role.id);
+        // Prevent duplicates
+        if (sub === 'modrole' && !config.modRoles.includes(role.id)) {
+            config.modRoles.push(role.id);
+        }
+
+        if (sub === 'adminrole' && !config.adminRoles.includes(role.id)) {
+            config.adminRoles.push(role.id);
+        }
+
+        if (sub === 'allowmod' && !config.modAllowedRoles.includes(role.id)) {
+            config.modAllowedRoles.push(role.id);
+        }
+
+        if (sub === 'allowadmin' && !config.adminAllowedRoles.includes(role.id)) {
+            config.adminAllowedRoles.push(role.id);
+        }
 
         saveConfig(guildId, config);
         return sendTempMessage(message.channel, 'Updated.');
@@ -114,6 +135,18 @@ AdminAllowed: ${config.adminAllowedRoles.length}`
         }
     } catch (err) {
         console.error(err);
+    }
+});
+
+// ===== SLASH COMMANDS =====
+client.on('interactionCreate', async (interaction) => {
+    if (!interaction.isChatInputCommand()) return;
+
+    if (interaction.commandName === 'help') {
+        await interaction.reply({
+            content: `Setup guide:\n${HELP_LINK}`,
+            ephemeral: true
+        });
     }
 });
 
