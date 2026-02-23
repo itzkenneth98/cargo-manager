@@ -289,6 +289,21 @@ client.on('messageCreate', async (message) => {
             return sendTempMessage(message.channel, 'Log channel set.');
         }
 
+        // RESET CONFIG
+        if (sub === 'reset') {
+            config.tiers = {};
+            config.logChannelId = null;
+
+            // Clear legacy fields so ensureConfig doesn't recreate tiers from old data.
+            config.modRoles = [];
+            config.adminRoles = [];
+            config.modAllowedRoles = [];
+            config.adminAllowedRoles = [];
+
+            saveConfig(guildId, config);
+            return sendTempMessage(message.channel, 'Setup reset complete.');
+        }
+
         // LIST (unchanged)
         if (sub === 'list') {
             const formatRoleList = (roleIds) => {
