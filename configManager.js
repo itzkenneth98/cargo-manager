@@ -3,22 +3,40 @@ const path = require('path');
 
 const configPath = path.join(__dirname, 'configs');
 
+function getDefaultConfig() {
+    return {
+        modRoles: [],
+        adminRoles: [],
+        modAllowedRoles: [],
+        adminAllowedRoles: [],
+        logChannelId: null
+    };
+}
+
 function getConfig(guildId) {
     const file = path.join(configPath, `${guildId}.json`);
 
-    if (!fs.existsSync(file)) {
-        const defaultConfig = {
-            modRoles: [],
-            adminRoles: [],
-            modAllowedRoles: [],
-            adminAllowedRoles: []
-        };
+    if (!fs.existsSync(configPath)) {
+        fs.mkdirSync(configPath);
+    }
 
+    if (!fs.existsSync(file)) {
+        const defaultConfig = getDefaultConfig();
         fs.writeFileSync(file, JSON.stringify(defaultConfig, null, 2));
         return defaultConfig;
     }
 
-    return JSON.parse(fs.readFileSync(file));
+    const config = JSON.parse(fs.readFileSync(file));
+
+    // Ensure new fields exist (backwards compatibility)
+    const defaults = getDefaultConfig();
+    for (const key in defaults) {
+        if (!(key in config)) {
+            config[key] = defaults[key];
+        }
+    }
+
+    return config;
 }
 
 function saveConfig(guildId, config) {
