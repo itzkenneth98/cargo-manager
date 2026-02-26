@@ -1,158 +1,180 @@
 # Cargo Role Manager Bot
 
-A lightweight Discord bot that allows server staff to add or remove
-specific roles from users using simple commands.
+A lightweight Discord bot for **tier-based role management** with built-in **moderation commands** (`ban`, `kick`, `mute`).
 
-This guide explains **how to set up the bot inside your server** after
-inviting it.
+All configuration is done **inside Discord** — no file editing required.
 
-------------------------------------------------------------------------
+---
 
 ## Overview
 
-The bot uses a simple permission system:
+Cargo Role Manager uses a **custom tier system** with priorities to control staff permissions.
 
--   **Moderators** -- can manage basic roles\
--   **Admins** -- can manage all roles (including admin-only roles)\
--   **Non-staff** -- commands are automatically deleted
+With tiers, you can:
 
-All configuration is done **inside Discord** using setup commands.\
-No file editing is required.
+- Assign staff roles to permission tiers
+- Control which roles each tier can add or remove
+- Define tier priority (higher tiers inherit lower-tier permissions)
+- Control access to moderation commands independently of Discord permissions
+- Keep chat clean with auto-deleted commands and responses
 
-------------------------------------------------------------------------
+**Discord Administrators always have full access.**
+
+---
 
 ## 1. Required Bot Permissions
 
-Make sure the bot's role:
+Make sure the bot’s role has:
 
--   Has **Manage Roles**
--   Has **Manage Messages**
--   Is placed **above any roles it needs to assign**
+- **Manage Roles**
+- **Manage Messages**
+- **Ban Members**
+- **Kick Members**
+- **Moderate Members** (Timeout Members)
 
-If the bot is below a role, Discord will block it.
+Also ensure:
 
-------------------------------------------------------------------------
+- The bot role is **above any roles it needs to assign**
+- The bot role is **above users it needs to moderate**
 
-## 2. Setup Commands (Server Admin Only)
+If the bot is lower in the role list, Discord will block the action.
 
-Only users with the **Administrator permission** can configure the bot.
+---
 
-### Set Moderator Roles
+## 2. Setup Commands (Admin Only)
 
-Users with these roles will be treated as Moderators:
+Only users with the **Administrator** permission can configure the bot.
 
-!setup modrole @Role
+---
 
-You can run this multiple times to add more Moderator roles.
+### Tier-Based Setup Commands
 
-------------------------------------------------------------------------
+Create and manage permission tiers:
 
-### Set Admin Roles
+    !setup createtier <name> <priority>
+    !setup settierpriority <name> <priority>
+    !setup deletetier <name>
 
-Users with these roles will be treated as Bot Admins:
+Assign staff roles to tiers:
 
-!setup adminrole @Role
+    !setup tierrole <tier> @Role
+    !setup remtierrole <tier> @Role
 
-------------------------------------------------------------------------
+Allow tiers to manage roles:
 
-## 3. Choose Which Roles Can Be Managed
+    !setup allow <tier> @Role
+    !setup remallow <tier> @Role
 
-### Roles Moderators Can Manage
+Other setup commands:
 
-!setup allowmod @Role
+    !setup logs #channel
+    !setup logs off
+    !setup reset
+    !setup show
 
-Moderators will be able to add/remove these roles.
+---
 
-------------------------------------------------------------------------
+### Tier Priority Rules
 
-### Extra Roles Only Admins Can Manage
+- Higher priority numbers = more power
+- Higher tiers **inherit permissions** from lower tiers
+- If a user belongs to multiple tiers, **only the highest priority tier is used**
 
-!setup allowadmin @Role
+---
 
-Admins can manage: - All Moderator roles - Plus these additional roles
+## Moderation Access Tier
 
-------------------------------------------------------------------------
+Control who can use moderation commands:
 
-## 4. View Current Configuration
+    !setup modtier default
+    !setup modtier <tier>
 
-!setup show
+- `default` → moderation requires the **lowest priority tier** (or higher)
+- Setting a tier → only that tier (and higher) can use moderation commands
 
-This displays how many roles are configured in each category.
+Moderation access is **tier-based**, not based on Discord’s Ban/Kick/Timeout permissions.
 
-------------------------------------------------------------------------
+---
 
-## 5. Using the Bot
+## 3. Role Management Commands
 
-Add a role to a user:
+Add a role:
 
-!addcargo @Role @User
+    !addcargo @Role @User
 
-Remove a role from a user:
+Remove a role:
 
-!remcargo @Role @User
+    !remcargo @Role @User
 
-Notes: - Commands are deleted automatically - Bot responses disappear
-after a few seconds - Only configured staff roles can use these commands
+Rules:
 
-------------------------------------------------------------------------
+- Only configured staff tiers can use these commands
+- Roles must be explicitly allowed for the user’s tier
+- Commands and responses auto-delete after a few seconds
 
-## 6. How Permissions Work
+---
 
-  User Type                 Access
-  ------------------------- --------------------------------------
-  Administrator (Discord)   Full access automatically
-  Bot Admin Role            Can manage all allowed roles
-  Moderator Role            Can manage roles set with `allowmod`
-  Non-staff                 Commands are removed automatically
+## 4. Moderation Commands
 
-------------------------------------------------------------------------
+    !ban @User <reason>
+    !kick @User <reason>
+    !mute @User <duration> <reason>
 
-## 7. Important: Role Hierarchy
+### Notes
 
-If a role cannot be assigned:
+- **Reason is required** for all moderation commands
+- `!mute` duration formats:
+  - `30m`
+  - `2h`
+  - `1d`
+  - `1w`
+  (Maximum: 28 days)
+- The bot **DMs the target user** before taking action
+- Access is controlled via **tiers**, not Discord permissions
 
-1.  Go to **Server Settings → Roles**
-2.  Move the bot role **above** the roles it needs to manage
+---
 
-Discord will not allow a bot to manage roles higher than its own.
+## 5. Important: Role & User Hierarchy
 
-------------------------------------------------------------------------
+If a role or moderation action fails:
 
-## 8. Troubleshooting
+1. Go to **Server Settings → Roles**
+2. Move the bot role **above**:
+   - Roles it needs to assign
+   - Users it needs to moderate
 
-**Bot not responding** - Make sure the bot is online - Check you used
-the correct command format
+Discord does not allow bots to manage roles or users above themselves.
 
-**Command deletes instantly** - You don't have a configured staff role
+---
 
-**Role won't assign** - Role not added with `allowmod` or `allowadmin` -
-Bot role is too low in the role list
+## 6. Troubleshooting
 
-------------------------------------------------------------------------
+**Bot not responding**
+- Confirm the bot is online
+- Check command spelling
 
-## 9. What This Bot Does Well
+**Command deletes instantly**
+- User is not in an allowed staff tier
 
--   Clean chat (auto-deletes commands and responses)
--   Clear Moderator/Admin separation
--   Prevents staff from assigning restricted roles
--   Per-server configuration (each server has its own setup)
+**Role command fails**
+- Role is not allowed for the user’s tier
+- Bot role is too low in hierarchy
 
-------------------------------------------------------------------------
+**Ban / Kick / Mute fails**
+- Missing bot permission
+- Target user is above the bot in the role list
 
-Once configured, the bot will follow your server's role structure
-automatically.
+---
 
-------------------------------------------------------------------------
+## What This Bot Does Well
 
-## 10. Dev Prefix File (Local Only)
+- Clean chat (auto-deletes commands and responses)
+- Flexible tier-based permission system
+- Priority-based access control
+- Moderation access independent of Discord permissions
+- Per-server configuration
+- Prevents restricted role abuse
 
-For development, you can change the message-command prefix with:
+---
 
-/prefix value:<newPrefix>
-
-Details:
-- Only Discord server administrators can run `/prefix`
-- `/prefix` is only registered when local `dev.features.json` has `"enablePrefixCommand": true`
-- Prefix is stored in `dev.prefix.json` (gitignored)
-- If `dev.prefix.json` does not exist, the bot defaults to `!`
-- Use `dev.features.sample.json` and `dev.prefix.sample.json` as file format references
+Once configured, **Cargo Role Manager** enforces your server’s role and moderation rules automatically.

@@ -43,6 +43,10 @@ function ensureConfig(config) {
     let changed = false;
     config.tiers = config.tiers || {};
     config.logChannelId = config.logChannelId || null;
+    if (!Object.prototype.hasOwnProperty.call(config, 'moderationTier')) {
+        config.moderationTier = null;
+        changed = true;
+    }
 
     // Backward compatibility: map legacy mod/admin configs into tier format.
     if (Object.keys(config.tiers).length === 0) {
@@ -89,6 +93,68 @@ function normalizeCommand(command, args) {
         return 'remcargo';
     }
     return command;
+}
+
+function getDefaultTierName(config) {
+    const tiers = Object.entries(config.tiers || {});
+    if (tiers.length === 0) return null;
+
+    const sorted = tiers.sort((a, b) => {
+        const aPriority = Number.isFinite(a[1].priority) ? a[1].priority : 0;
+        const bPriority = Number.isFinite(b[1].priority) ? b[1].priority : 0;
+        if (aPriority !== bPriority) return aPriority - bPriority;
+        return a[0].localeCompare(b[0]);
+    });
+
+    return sorted[0][0];
+}
+
+function getModerationRequirement(config) {
+    if (config.moderationTier && config.tiers[config.moderationTier]) {
+        return {
+            tierName: config.moderationTier,
+            priority: Number.isFinite(config.tiers[config.moderationTier].priority)
+                ? config.tiers[config.moderationTier].priority
+                : 0
+        };
+    }
+
+    const defaultTier = getDefaultTierName(config);
+    if (!defaultTier) return null;
+
+    return {
+        tierName: defaultTier,
+        priority: Number.isFinite(config.tiers[defaultTier].priority)
+            ? config.tiers[defaultTier].priority
+            : 0
+    };
+}
+
+function parseDurationToMs(input) {
+    if (!input) return null;
+    const match = /^(\d+)([smhdw])$/i.exec(input.trim());
+    if (!match) return null;
+
+    const value = Number.parseInt(match[1], 10);
+    const unit = match[2].toLowerCase();
+
+    const multipliers = {
+        s: 1000,
+        m: 60 * 1000,
+        h: 60 * 60 * 1000,
+        d: 24 * 60 * 60 * 1000,
+        w: 7 * 24 * 60 * 60 * 1000
+    };
+
+    return value * multipliers[unit];
+}
+
+async function sendModerationDM(member, actionWord, reason) {
+    try {
+        await member.send(`Hey ${member.user}, you have been ${actionWord} because ${reason}`);
+    } catch (error) {
+        // Ignore DM failures (closed DMs, privacy settings).
+    }
 }
 
 function getMemberTierAccess(member, config) {
@@ -165,7 +231,7 @@ client.on('messageCreate', async (message) => {
                 .addFields(
                 { name: 'User', value: `${message.member}`, inline: true },
                 { name: 'Channel', value: `${message.channel}`, inline: true },
-                { name: 'Command', value: `${prefix}setup ${sub || ''}` }
+                { name: 'Command', value: `${prefix}setup ${[sub, ...args].filter(Boolean).join(' ')}` }
             )
             .setTimestamp();
 
@@ -184,6 +250,52 @@ client.on('messageCreate', async (message) => {
         sendLogEmbed(message.guild, config, setupLog);
 
         // ===== Setup Logic =====
+        const findExistingTierName = () => {
+            if (tierName && config.tiers[tierName]) return tierName;
+            for (const token of args) {
+                const normalized = token.toLowerCase();
+                if (config.tiers[normalized]) return normalized;
+            }
+            return null;
+        };
+
+        const listConfiguredTiers = () => {
+            const names = Object.keys(config.tiers || {});
+            return names.length ? names.join(', ') : 'none';
+        };
+
+        // Legacy aliases from README
+        if (sub === 'modrole' || sub === 'adminrole' || sub === 'allowmod' || sub === 'allowadmin') {
+            const mappedTier = (sub === 'modrole' || sub === 'allowmod') ? 'mod' : 'admin';
+
+            if (!config.tiers[mappedTier]) {
+                config.tiers[mappedTier] = {
+                    priority: mappedTier === 'admin' ? 2 : 1,
+                    roles: [],
+                    allowedRoles: []
+                };
+            }
+
+            if (!role) {
+                if (sub === 'modrole') return sendTempMessage(message.channel, 'Usage: !setup modrole @Role');
+                if (sub === 'adminrole') return sendTempMessage(message.channel, 'Usage: !setup adminrole @Role');
+                if (sub === 'allowmod') return sendTempMessage(message.channel, 'Usage: !setup allowmod @Role');
+                return sendTempMessage(message.channel, 'Usage: !setup allowadmin @Role');
+            }
+
+            if (sub === 'modrole' || sub === 'adminrole') {
+                if (!config.tiers[mappedTier].roles.includes(role.id)) {
+                    config.tiers[mappedTier].roles.push(role.id);
+                }
+            } else {
+                if (!config.tiers[mappedTier].allowedRoles.includes(role.id)) {
+                    config.tiers[mappedTier].allowedRoles.push(role.id);
+                }
+            }
+
+            saveConfig(guildId, config);
+            return sendTempMessage(message.channel, 'Updated.');
+        }
 
         // CREATE TIER
         if (sub === 'createtier') {
@@ -229,22 +341,28 @@ client.on('messageCreate', async (message) => {
 
         // STAFF ROLES
         if (sub === 'tierrole') {
-            if (!config.tiers[tierName] || !role)
-                return sendTempMessage(message.channel, 'Usage: !setup tierrole <tier> @Role');
+            const targetTier = findExistingTierName();
+            if (!targetTier)
+                return sendTempMessage(message.channel, `Tier not found. Configured tiers: ${listConfiguredTiers()}`);
+            if (!role)
+                return sendTempMessage(message.channel, `Usage: ${prefix}setup tierrole <tier> @Role`);
 
-            if (!config.tiers[tierName].roles.includes(role.id))
-                config.tiers[tierName].roles.push(role.id);
+            if (!config.tiers[targetTier].roles.includes(role.id))
+                config.tiers[targetTier].roles.push(role.id);
 
             saveConfig(guildId, config);
             return sendTempMessage(message.channel, 'Updated.');
         }
 
         if (sub === 'remtierrole') {
-            if (!config.tiers[tierName] || !role)
-                return sendTempMessage(message.channel, 'Usage: !setup remtierrole <tier> @Role');
+            const targetTier = findExistingTierName();
+            if (!targetTier)
+                return sendTempMessage(message.channel, `Tier not found. Configured tiers: ${listConfiguredTiers()}`);
+            if (!role)
+                return sendTempMessage(message.channel, `Usage: ${prefix}setup remtierrole <tier> @Role`);
 
-            config.tiers[tierName].roles =
-                config.tiers[tierName].roles.filter(id => id !== role.id);
+            config.tiers[targetTier].roles =
+                config.tiers[targetTier].roles.filter(id => id !== role.id);
 
             saveConfig(guildId, config);
             return sendTempMessage(message.channel, 'Updated.');
@@ -252,22 +370,28 @@ client.on('messageCreate', async (message) => {
 
         // ALLOWED ROLES
         if (sub === 'allow') {
-            if (!config.tiers[tierName] || !role)
-                return sendTempMessage(message.channel, 'Usage: !setup allow <tier> @Role');
+            const targetTier = findExistingTierName();
+            if (!targetTier)
+                return sendTempMessage(message.channel, `Tier not found. Configured tiers: ${listConfiguredTiers()}`);
+            if (!role)
+                return sendTempMessage(message.channel, `Usage: ${prefix}setup allow <tier> @Role`);
 
-            if (!config.tiers[tierName].allowedRoles.includes(role.id))
-                config.tiers[tierName].allowedRoles.push(role.id);
+            if (!config.tiers[targetTier].allowedRoles.includes(role.id))
+                config.tiers[targetTier].allowedRoles.push(role.id);
 
             saveConfig(guildId, config);
             return sendTempMessage(message.channel, 'Updated.');
         }
 
         if (sub === 'remallow') {
-            if (!config.tiers[tierName] || !role)
-                return sendTempMessage(message.channel, 'Usage: !setup remallow <tier> @Role');
+            const targetTier = findExistingTierName();
+            if (!targetTier)
+                return sendTempMessage(message.channel, `Tier not found. Configured tiers: ${listConfiguredTiers()}`);
+            if (!role)
+                return sendTempMessage(message.channel, `Usage: ${prefix}setup remallow <tier> @Role`);
 
-            config.tiers[tierName].allowedRoles =
-                config.tiers[tierName].allowedRoles.filter(id => id !== role.id);
+            config.tiers[targetTier].allowedRoles =
+                config.tiers[targetTier].allowedRoles.filter(id => id !== role.id);
 
             saveConfig(guildId, config);
             return sendTempMessage(message.channel, 'Updated.');
@@ -275,7 +399,7 @@ client.on('messageCreate', async (message) => {
 
         // LOG CHANNEL
         if (sub === 'logs') {
-            if (args[0]?.toLowerCase() === 'off') {
+            if (tierName === 'off' || args[0]?.toLowerCase() === 'off') {
                 config.logChannelId = null;
                 saveConfig(guildId, config);
                 return sendTempMessage(message.channel, 'Logs disabled.');
@@ -293,6 +417,7 @@ client.on('messageCreate', async (message) => {
         if (sub === 'reset') {
             config.tiers = {};
             config.logChannelId = null;
+            config.moderationTier = null;
 
             // Clear legacy fields so ensureConfig doesn't recreate tiers from old data.
             config.modRoles = [];
@@ -304,8 +429,33 @@ client.on('messageCreate', async (message) => {
             return sendTempMessage(message.channel, 'Setup reset complete.');
         }
 
+        // MODERATION COMMAND TIER
+        if (sub === 'modtier' || sub === 'moderationtier') {
+            const requestedTier = tierName;
+            if (!requestedTier) {
+                return sendTempMessage(message.channel, `Usage: ${prefix}setup modtier <tier|default>`);
+            }
+
+            if (requestedTier === 'default') {
+                config.moderationTier = null;
+                saveConfig(guildId, config);
+                return sendTempMessage(message.channel, 'Moderation commands now default to the lowest-priority tier.');
+            }
+
+            if (!config.tiers[requestedTier]) {
+                return sendTempMessage(message.channel, `Tier not found. Configured tiers: ${listConfiguredTiers()}`);
+            }
+
+            config.moderationTier = requestedTier;
+            saveConfig(guildId, config);
+            return sendTempMessage(
+                message.channel,
+                `Moderation commands now require tier **${requestedTier}** (or higher priority).`
+            );
+        }
+
         // LIST (unchanged)
-        if (sub === 'list') {
+        if (sub === 'list' || sub === 'show') {
             const formatRoleList = (roleIds) => {
                 if (!roleIds?.length) return '`None`';
                 return roleIds.map(id => `<@&${id}>`).join(' • ');
@@ -341,6 +491,14 @@ client.on('messageCreate', async (message) => {
                             divider
                     });
                 }
+
+                const moderationRequirement = getModerationRequirement(config);
+                embed.addFields({
+                    name: 'Moderation Commands',
+                    value: moderationRequirement
+                        ? `Required tier: **${moderationRequirement.tierName}** (or higher).\nSet with: \`${prefix}setup modtier <tier|default>\``
+                        : 'No tiers configured.'
+                });
             }
 
             const row = new ActionRowBuilder().addComponents(
@@ -356,6 +514,175 @@ client.on('messageCreate', async (message) => {
                 components: [row]
             });
         }
+
+        return sendTempMessage(
+            message.channel,
+            `Unknown setup command. Try: ${prefix}setup list`
+        );
+    }
+
+    if (command === 'ban') {
+        const access = getMemberTierAccess(message.member, config);
+        const requirement = getModerationRequirement(config);
+        if (!requirement) {
+            return sendTempMessage(message.channel, 'No staff tiers are configured yet.');
+        }
+        if (!access || access.highestPriority < requirement.priority) {
+            return sendTempMessage(message.channel, 'You are not allowed to use moderation commands.');
+        }
+
+        const targetMember = message.mentions.members.filter(m => m.id !== message.author.id).first()
+            || message.mentions.members.first();
+        const reason = args.slice(1).join(' ').trim();
+
+        if (!targetMember || !reason) {
+            return sendTempMessage(message.channel, `Usage: ${prefix}ban @User <reason>`);
+        }
+
+        if (targetMember.id === message.author.id) {
+            return sendTempMessage(message.channel, 'You cannot ban yourself.');
+        }
+
+        if (!targetMember.bannable) {
+            return sendTempMessage(message.channel, 'I cannot ban that user. Check role hierarchy and permissions.');
+        }
+
+        try {
+            await sendModerationDM(targetMember, 'banned', reason);
+            await targetMember.ban({ reason: `By ${message.author.tag}: ${reason}` });
+            await sendTempMessage(message.channel, `Banned ${targetMember.user.tag}.`);
+
+            const modLog = new EmbedBuilder()
+                .setColor(0xED4245)
+                .setTitle('User Banned')
+                .addFields(
+                    { name: 'Staff', value: `${message.member}`, inline: true },
+                    { name: 'User', value: `${targetMember.user.tag}`, inline: true },
+                    { name: 'Tier', value: access.tierNames.join(', ') || 'Unknown', inline: true },
+                    { name: 'Channel', value: `${message.channel}`, inline: true },
+                    { name: 'Reason', value: reason }
+                )
+                .setTimestamp();
+
+            sendLogEmbed(message.guild, config, modLog);
+        } catch (error) {
+            return sendTempMessage(message.channel, 'Failed to ban user.');
+        }
+
+        return;
+    }
+
+    if (command === 'kick') {
+        const access = getMemberTierAccess(message.member, config);
+        const requirement = getModerationRequirement(config);
+        if (!requirement) {
+            return sendTempMessage(message.channel, 'No staff tiers are configured yet.');
+        }
+        if (!access || access.highestPriority < requirement.priority) {
+            return sendTempMessage(message.channel, 'You are not allowed to use moderation commands.');
+        }
+
+        const targetMember = message.mentions.members.filter(m => m.id !== message.author.id).first()
+            || message.mentions.members.first();
+        const reason = args.slice(1).join(' ').trim();
+
+        if (!targetMember || !reason) {
+            return sendTempMessage(message.channel, `Usage: ${prefix}kick @User <reason>`);
+        }
+
+        if (targetMember.id === message.author.id) {
+            return sendTempMessage(message.channel, 'You cannot kick yourself.');
+        }
+
+        if (!targetMember.kickable) {
+            return sendTempMessage(message.channel, 'I cannot kick that user. Check role hierarchy and permissions.');
+        }
+
+        try {
+            await sendModerationDM(targetMember, 'kicked', reason);
+            await targetMember.kick(`By ${message.author.tag}: ${reason}`);
+            await sendTempMessage(message.channel, `Kicked ${targetMember.user.tag}.`);
+
+            const modLog = new EmbedBuilder()
+                .setColor(0xFAA61A)
+                .setTitle('User Kicked')
+                .addFields(
+                    { name: 'Staff', value: `${message.member}`, inline: true },
+                    { name: 'User', value: `${targetMember.user.tag}`, inline: true },
+                    { name: 'Tier', value: access.tierNames.join(', ') || 'Unknown', inline: true },
+                    { name: 'Channel', value: `${message.channel}`, inline: true },
+                    { name: 'Reason', value: reason }
+                )
+                .setTimestamp();
+
+            sendLogEmbed(message.guild, config, modLog);
+        } catch (error) {
+            return sendTempMessage(message.channel, 'Failed to kick user.');
+        }
+
+        return;
+    }
+
+    if (command === 'mute') {
+        const access = getMemberTierAccess(message.member, config);
+        const requirement = getModerationRequirement(config);
+        if (!requirement) {
+            return sendTempMessage(message.channel, 'No staff tiers are configured yet.');
+        }
+        if (!access || access.highestPriority < requirement.priority) {
+            return sendTempMessage(message.channel, 'You are not allowed to use moderation commands.');
+        }
+
+        const targetMember = message.mentions.members.filter(m => m.id !== message.author.id).first()
+            || message.mentions.members.first();
+        const durationToken = args[1];
+        const durationMs = parseDurationToMs(durationToken);
+        const reason = args.slice(2).join(' ').trim();
+        const maxTimeoutMs = 28 * 24 * 60 * 60 * 1000;
+
+        if (!targetMember || !durationMs || !reason) {
+            return sendTempMessage(
+                message.channel,
+                `Usage: ${prefix}mute @User <duration> <reason> (duration examples: 30m, 2h, 1d)`
+            );
+        }
+
+        if (targetMember.id === message.author.id) {
+            return sendTempMessage(message.channel, 'You cannot mute yourself.');
+        }
+
+        if (durationMs > maxTimeoutMs) {
+            return sendTempMessage(message.channel, 'Mute duration cannot be longer than 28 days.');
+        }
+
+        if (!targetMember.moderatable) {
+            return sendTempMessage(message.channel, 'I cannot mute that user. Check role hierarchy and permissions.');
+        }
+
+        try {
+            await sendModerationDM(targetMember, 'timed out', reason);
+            await targetMember.timeout(durationMs, `By ${message.author.tag}: ${reason}`);
+            await sendTempMessage(message.channel, `Muted ${targetMember.user.tag} for ${durationToken}.`);
+
+            const modLog = new EmbedBuilder()
+                .setColor(0x5865F2)
+                .setTitle('User Muted')
+                .addFields(
+                    { name: 'Staff', value: `${message.member}`, inline: true },
+                    { name: 'User', value: `${targetMember.user.tag}`, inline: true },
+                    { name: 'Tier', value: access.tierNames.join(', ') || 'Unknown', inline: true },
+                    { name: 'Duration', value: durationToken, inline: true },
+                    { name: 'Channel', value: `${message.channel}`, inline: true },
+                    { name: 'Reason', value: reason }
+                )
+                .setTimestamp();
+
+            sendLogEmbed(message.guild, config, modLog);
+        } catch (error) {
+            return sendTempMessage(message.channel, 'Failed to mute user.');
+        }
+
+        return;
     }
 
     // ===== Role commands unchanged below =====
