@@ -134,7 +134,17 @@ Rules:
 
 ---
 
-## 5. Important: Role & User Hierarchy
+## 5. Info Command
+
+Post a portfolio-friendly summary embed:
+
+    !info
+
+This sends a persistent embed describing what the bot does and listing key commands.
+
+---
+
+## 6. Important: Role & User Hierarchy
 
 If a role or moderation action fails:
 
@@ -147,7 +157,7 @@ Discord does not allow bots to manage roles or users above themselves.
 
 ---
 
-## 6. Troubleshooting
+## 7. Troubleshooting
 
 **Bot not responding**
 - Confirm the bot is online

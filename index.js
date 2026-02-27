@@ -521,6 +521,43 @@ client.on('messageCreate', async (message) => {
         );
     }
 
+    if (command === 'info') {
+        const infoEmbed = new EmbedBuilder()
+            .setColor(0x5865F2)
+            .setTitle('Cargo Role Manager')
+            .setDescription(
+                'Tier-based Discord management for role control and moderation.\n' +
+                'Built for server operations and portfolio showcase use.'
+            )
+            .addFields(
+                {
+                    name: 'Core Features',
+                    value:
+                        '• Tiered staff permissions with priority inheritance\n' +
+                        '• Scoped role management (`addcargo`, `remcargo`)\n' +
+                        '• Moderation actions (`ban`, `kick`, `mute`) with reason + logs\n' +
+                        '• Per-guild setup with in-Discord configuration commands'
+                },
+                {
+                    name: 'Quick Commands',
+                    value:
+                        `• \`${prefix}setup show\` - view current tier config\n` +
+                        `• \`${prefix}addcargo @Role @User\`\n` +
+                        `• \`${prefix}remcargo @Role @User\`\n` +
+                        `• \`${prefix}ban|kick|mute ...\``
+                },
+                {
+                    name: 'Documentation',
+                    value: `[Setup and usage guide](${HELP_LINK})`
+                }
+            )
+            .setFooter({ text: `Requested by ${message.author.tag}` })
+            .setTimestamp();
+
+        await message.channel.send({ embeds: [infoEmbed] });
+        return;
+    }
+
     if (command === 'ban') {
         const access = getMemberTierAccess(message.member, config);
         const requirement = getModerationRequirement(config);
